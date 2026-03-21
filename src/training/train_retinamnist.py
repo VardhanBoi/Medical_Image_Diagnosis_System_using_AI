@@ -3,39 +3,45 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 
-from src.datasets.medmnist_datasets import get_chestmnist
+from src.datasets.medmnist_datasets import get_dermamnist
 from src.models.cnn_model import CNN
 
 from sklearn.metrics import classification_report, f1_score
 import numpy as np
 
-print(">>> SCRIPT STARTED")
+print(">>> DermMNIST training started")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # -------------------------
-# TRANSFORMS (GRAYSCALE)
+# TRANSFORMS (ResNet style)
 # -------------------------
 
 train_transform = transforms.Compose([
     transforms.Resize((64,64)),
     transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.Normalize((0.5,), (0.5,))
+    transforms.RandomRotation(15),
+    transforms.Normalize(
+        (0.485, 0.456, 0.406),
+        (0.229, 0.224, 0.225)
+    )
 ])
 
 test_transform = transforms.Compose([
     transforms.Resize((64,64)),
-    transforms.Normalize((0.5,), (0.5,))
+    transforms.Normalize(
+        (0.485, 0.456, 0.406),
+        (0.229, 0.224, 0.225)
+    )
 ])
 
 # -------------------------
 # DATA
 # -------------------------
 
-train_dataset = get_chestmnist("train", transform=train_transform)
-val_dataset = get_chestmnist("val", transform=test_transform)
-test_dataset = get_chestmnist("test", transform=test_transform)
+train_dataset = get_dermamnist("train", transform=train_transform)
+val_dataset = get_dermamnist("val", transform=test_transform)
+test_dataset = get_dermamnist("test", transform=test_transform)
 
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=64)
@@ -45,7 +51,7 @@ test_loader = DataLoader(test_dataset, batch_size=64)
 # MODEL
 # -------------------------
 
-model = CNN(in_channels=1, num_classes=14).to(device)
+model = CNN(in_channels=3, num_classes=7).to(device)
 
 # Freeze backbone initially
 for param in model.model.parameters():
@@ -55,10 +61,10 @@ for param in model.model.fc.parameters():
     param.requires_grad = True
 
 # -------------------------
-# LOSS (multi-label)
+# TRAINING SETUP
 # -------------------------
 
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.CrossEntropyLoss()
 
 optimizer = torch.optim.Adam(
     model.parameters(),
@@ -73,13 +79,13 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     factor=0.5
 )
 
-epochs = 40
+epochs = 50
 best_f1 = 0
 patience = 7
 no_improve = 0
 
 # -------------------------
-# EVALUATION (F1 based)
+# EVALUATION (F1-based)
 # -------------------------
 
 def evaluate(model, loader):
@@ -90,21 +96,16 @@ def evaluate(model, loader):
     with torch.no_grad():
         for images, labels in loader:
             images = images.to(device)
-            labels = labels.to(device).float()
+            labels = labels.to(device)
 
             outputs = model(images)
-            probs = torch.sigmoid(outputs)
-            preds = (probs > 0.5).int()
+            _, predicted = torch.max(outputs, 1)
 
-            all_preds.append(preds.cpu().numpy())
-            all_labels.append(labels.cpu().numpy())
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
-    all_preds = np.vstack(all_preds)
-    all_labels = np.vstack(all_labels)
-
-    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+    f1 = f1_score(all_labels, all_preds, average='macro')
     return f1
-
 
 # -------------------------
 # TRAINING LOOP
@@ -124,7 +125,7 @@ for epoch in range(epochs):
     for images, labels in train_loader:
 
         images = images.to(device)
-        labels = labels.to(device).float()
+        labels = labels.to(device)
 
         optimizer.zero_grad()
 
@@ -146,7 +147,7 @@ for epoch in range(epochs):
     if val_f1 > best_f1:
         best_f1 = val_f1
         no_improve = 0
-        torch.save(model.state_dict(), "best_chestmnist_model.pth")
+        torch.save(model.state_dict(), "best_dermamnist_model.pth")
     else:
         no_improve += 1
 
@@ -162,7 +163,7 @@ print("Best validation F1:", best_f1)
 # TESTING
 # -------------------------
 
-model.load_state_dict(torch.load("best_chestmnist_model.pth"))
+model.load_state_dict(torch.load("best_dermamnist_model.pth"))
 model.eval()
 
 all_preds = []
@@ -170,21 +171,18 @@ all_labels = []
 
 with torch.no_grad():
     for images, labels in test_loader:
+
         images = images.to(device)
-        labels = labels.to(device).float()
+        labels = labels.to(device)
 
         outputs = model(images)
-        probs = torch.sigmoid(outputs)
-        preds = (probs > 0.5).int()
+        _, predicted = torch.max(outputs, 1)
 
-        all_preds.append(preds.cpu().numpy())
-        all_labels.append(labels.cpu().numpy())
-
-all_preds = np.vstack(all_preds)
-all_labels = np.vstack(all_labels)
+        all_preds.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
 print("\nClassification Report:")
 print(classification_report(all_labels, all_preds, zero_division=0))
 
-f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+f1 = f1_score(all_labels, all_preds, average='macro')
 print("Macro F1:", f1)

@@ -1,38 +1,25 @@
 import torch.nn as nn
+import torchvision.models as models
 
 
 class CNN(nn.Module):
 
     def __init__(self, in_channels, num_classes):
-
         super().__init__()
 
-        self.features = nn.Sequential(
+        self.model = models.resnet18(weights="IMAGENET1K_V1")
 
-            nn.Conv2d(in_channels,32,3,padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+        if in_channels == 1:
+            self.model.conv1 = nn.Conv2d(
+                1, 64, kernel_size=7, stride=2, padding=3, bias=False
+            )
 
-            nn.Conv2d(32,64,3,padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(64,128,3,padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2)
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(128*3*3,256),
+        self.model.fc = nn.Sequential(
+            nn.Linear(self.model.fc.in_features, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(256,num_classes)
+            nn.Linear(256, num_classes)
         )
 
-    def forward(self,x):
-
-        x = self.features(x)
-        x = x.view(x.size(0),-1)
-        return self.classifier(x)
+    def forward(self, x):
+        return self.model(x)
