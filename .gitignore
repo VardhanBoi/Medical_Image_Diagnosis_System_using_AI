@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Model weights
+*.pth
+
+# Numpy datasets
+*.npy
+
+# Processed data folder
+processed/
+
+# Environment files
+.env
+
+# VS Code settings
+.vscode/
+
+# Jupyter notebooks (optional)
+.ipynb_checkpoints/
