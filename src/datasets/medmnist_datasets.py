@@ -72,8 +72,8 @@ class MedMNISTDataset(Dataset):
 
 def get_dataset(dataset_name, split, transform=None):
 
-    images_path = f"processed/{dataset_name}_{split}_images.npy"
-    labels_path = f"processed/{dataset_name}_{split}_labels.npy"
+    images_path = f"data/{dataset_name}_{split}_images.npy"
+    labels_path = f"data/{dataset_name}_{split}_labels.npy"
 
     return MedMNISTDataset(images_path, labels_path, transform)
 

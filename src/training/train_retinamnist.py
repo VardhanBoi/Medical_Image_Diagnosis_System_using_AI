@@ -3,19 +3,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 
-from src.datasets.medmnist_datasets import get_dermamnist
+from src.datasets.medmnist_datasets import get_retinamnist
 from src.models.cnn_model import CNN
 
 from sklearn.metrics import classification_report, f1_score
 import numpy as np
 
-print(">>> DermMNIST training started")
+print(">>> RetinaMNIST training started")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# -------------------------
-# TRANSFORMS (ResNet style)
-# -------------------------
 
 train_transform = transforms.Compose([
     transforms.Resize((64,64)),
@@ -35,34 +31,21 @@ test_transform = transforms.Compose([
     )
 ])
 
-# -------------------------
-# DATA
-# -------------------------
-
-train_dataset = get_dermamnist("train", transform=train_transform)
-val_dataset = get_dermamnist("val", transform=test_transform)
-test_dataset = get_dermamnist("test", transform=test_transform)
+train_dataset = get_retinamnist("train", transform=train_transform)
+val_dataset = get_retinamnist("val", transform=test_transform)
+test_dataset = get_retinamnist("test", transform=test_transform)
 
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=64)
 test_loader = DataLoader(test_dataset, batch_size=64)
 
-# -------------------------
-# MODEL
-# -------------------------
-
 model = CNN(in_channels=3, num_classes=7).to(device)
 
-# Freeze backbone initially
 for param in model.model.parameters():
     param.requires_grad = False
 
 for param in model.model.fc.parameters():
     param.requires_grad = True
-
-# -------------------------
-# TRAINING SETUP
-# -------------------------
 
 criterion = nn.CrossEntropyLoss()
 
@@ -84,10 +67,6 @@ best_f1 = 0
 patience = 7
 no_improve = 0
 
-# -------------------------
-# EVALUATION (F1-based)
-# -------------------------
-
 def evaluate(model, loader):
     model.eval()
     all_preds = []
@@ -107,16 +86,11 @@ def evaluate(model, loader):
     f1 = f1_score(all_labels, all_preds, average='macro')
     return f1
 
-# -------------------------
-# TRAINING LOOP
-# -------------------------
-
 for epoch in range(epochs):
 
     model.train()
     total_loss = 0
 
-    # Unfreeze after few epochs
     if epoch == 5:
         print("Unfreezing backbone...")
         for param in model.model.parameters():
@@ -147,7 +121,7 @@ for epoch in range(epochs):
     if val_f1 > best_f1:
         best_f1 = val_f1
         no_improve = 0
-        torch.save(model.state_dict(), "best_dermamnist_model.pth")
+        torch.save(model.state_dict(), "models/retinamnist_resnet.pth")
     else:
         no_improve += 1
 
@@ -159,11 +133,7 @@ for epoch in range(epochs):
 print("\nTraining finished.")
 print("Best validation F1:", best_f1)
 
-# -------------------------
-# TESTING
-# -------------------------
-
-model.load_state_dict(torch.load("best_dermamnist_model.pth"))
+model.load_state_dict(torch.load("models/retinamnist_resnet.pth"))
 model.eval()
 
 all_preds = []

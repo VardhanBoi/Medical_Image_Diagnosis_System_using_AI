@@ -9,13 +9,9 @@ from src.models.cnn_model import CNN
 from sklearn.metrics import classification_report, f1_score
 import numpy as np
 
-print(">>> SCRIPT STARTED")
+print(">>> ChestMNIST SCRIPT STARTED")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# -------------------------
-# TRANSFORMS (GRAYSCALE)
-# -------------------------
 
 train_transform = transforms.Compose([
     transforms.Resize((64,64)),
@@ -29,10 +25,6 @@ test_transform = transforms.Compose([
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-# -------------------------
-# DATA
-# -------------------------
-
 train_dataset = get_chestmnist("train", transform=train_transform)
 val_dataset = get_chestmnist("val", transform=test_transform)
 test_dataset = get_chestmnist("test", transform=test_transform)
@@ -41,22 +33,13 @@ train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=64)
 test_loader = DataLoader(test_dataset, batch_size=64)
 
-# -------------------------
-# MODEL
-# -------------------------
-
 model = CNN(in_channels=1, num_classes=14).to(device)
 
-# Freeze backbone initially
 for param in model.model.parameters():
     param.requires_grad = False
 
 for param in model.model.fc.parameters():
     param.requires_grad = True
-
-# -------------------------
-# LOSS (multi-label)
-# -------------------------
 
 criterion = nn.BCEWithLogitsLoss()
 
@@ -77,10 +60,6 @@ epochs = 40
 best_f1 = 0
 patience = 7
 no_improve = 0
-
-# -------------------------
-# EVALUATION (F1 based)
-# -------------------------
 
 def evaluate(model, loader):
     model.eval()
@@ -104,11 +83,6 @@ def evaluate(model, loader):
 
     f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
     return f1
-
-
-# -------------------------
-# TRAINING LOOP
-# -------------------------
 
 for epoch in range(epochs):
 
@@ -146,7 +120,7 @@ for epoch in range(epochs):
     if val_f1 > best_f1:
         best_f1 = val_f1
         no_improve = 0
-        torch.save(model.state_dict(), "best_chestmnist_model.pth")
+        torch.save(model.state_dict(), "models/chestmnist_resnet.pth")
     else:
         no_improve += 1
 
@@ -158,11 +132,7 @@ for epoch in range(epochs):
 print("\nTraining finished.")
 print("Best validation F1:", best_f1)
 
-# -------------------------
-# TESTING
-# -------------------------
-
-model.load_state_dict(torch.load("best_chestmnist_model.pth"))
+model.load_state_dict(torch.load("models/chestmnist_resnet.pth"))
 model.eval()
 
 all_preds = []
