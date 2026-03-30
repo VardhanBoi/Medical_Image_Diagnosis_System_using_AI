@@ -18,7 +18,7 @@ def get_dermamnist(split):
     return dataset
 
 
-def preprocess_and_save(output_dir: str = "processed"):
+def preprocess_and_save(output_dir: str = "data"):
     os.makedirs(output_dir, exist_ok=True)
 
     for split in ["train", "val", "test"]:

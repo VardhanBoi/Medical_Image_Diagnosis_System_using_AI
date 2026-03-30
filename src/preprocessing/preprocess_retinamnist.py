@@ -1,10 +1,10 @@
 import os
 import numpy as np
-from medmnist.dataset import DermaMNIST
+from medmnist.dataset import RetinaMNIST
 
 
-def load_dermamnist(split):
-    dataset = DermaMNIST(
+def load_retinamnist(split):
+    dataset = RetinaMNIST(
         split=split,
         download=True,
         as_rgb=True
@@ -12,29 +12,36 @@ def load_dermamnist(split):
     return dataset
 
 
-def preprocess_and_save(output_dir="processed"):
+def preprocess_and_save(output_dir="data"):
     os.makedirs(output_dir, exist_ok=True)
 
     stats = {}
 
     for split in ["train", "val", "test"]:
-        dataset = load_dermamnist(split)
+        dataset = load_retinamnist(split)
 
-        # Direct array access
-        images = dataset.imgs.astype(np.float32) / 255.0
-        labels = dataset.labels.astype(np.int64)
+        images = (dataset.imgs / 255.0).astype(np.float32)
+        labels = dataset.labels.squeeze().astype(np.int64)
 
-        # Save
-        np.save(f"{output_dir}/dermamnist_{split}_images.npy", images)
-        np.save(f"{output_dir}/dermamnist_{split}_labels.npy", labels)
+        np.save(f"{output_dir}/retinamnist_{split}_images.npy", images)
+        np.save(f"{output_dir}/retinamnist_{split}_labels.npy", labels)
 
-        stats[split] = {
-            "mean": float(images.mean()),
-            "std": float(images.std())
-        }
+        if split == "train":
+            mean = images.mean(axis=(0,1,2))
+            std = images.std(axis=(0,1,2))
+
+            stats["train"] = {
+                "mean": mean.tolist(),
+                "std": std.tolist()
+            }
 
         print(f"{split} images: {images.shape}")
         print(f"{split} labels: {labels.shape}")
+
+    import json
+
+    with open(f"{output_dir}/retinamnist_stats.json", "w") as f:
+        json.dump(stats, f, indent=4)
 
     print("\nDataset statistics:")
     for k, v in stats.items():

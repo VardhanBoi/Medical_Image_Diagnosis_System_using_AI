@@ -44,8 +44,8 @@ for param in model.model.fc.parameters():
 criterion = nn.BCEWithLogitsLoss()
 
 optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=0.0003,
+    filter(lambda p: p.requires_grad, model.parameters()),
+    lr=3e-4,
     weight_decay=1e-4
 )
 
@@ -73,7 +73,7 @@ def evaluate(model, loader):
 
             outputs = model(images)
             probs = torch.sigmoid(outputs)
-            preds = (probs > 0.5).int()
+            preds = (probs > 0.3).int()
 
             all_preds.append(preds.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
@@ -91,6 +91,11 @@ for epoch in range(epochs):
 
     # Unfreeze after few epochs
     if epoch == 5:
+        print("Unfreezing backbone...")
+        for param in model.model.layer4.parameters():
+            param.requires_grad = True
+
+    if epoch == 10:
         print("Unfreezing backbone...")
         for param in model.model.parameters():
             param.requires_grad = True

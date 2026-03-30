@@ -70,8 +70,8 @@ for param in model.model.fc.parameters():
 criterion = nn.CrossEntropyLoss(weight=weights)
 
 optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=0.0003,
+    filter(lambda p: p.requires_grad, model.parameters()),
+    lr=3e-4,
     weight_decay=1e-4
 )
 
@@ -89,8 +89,8 @@ no_improve = 0
 
 def evaluate(model, loader):
     model.eval()
-    correct = 0
-    total = 0
+    all_preds = []
+    all_labels = []
 
     with torch.no_grad():
         for images, labels in loader:
@@ -100,10 +100,10 @@ def evaluate(model, loader):
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
 
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
-    return 100 * correct / total
+    return f1_score(all_labels, all_preds, average='macro')
 
 for epoch in range(epochs):
 
@@ -133,9 +133,9 @@ for epoch in range(epochs):
     avg_loss = total_loss / len(train_loader)
 
     val_acc = evaluate(model, val_loader)
-    scheduler.step(val_acc)
+    scheduler.step(f1_score)
 
-    print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Val Acc: {val_acc:.2f}%")
+    print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Val F1: {f1_score:.4f}")
 
     if val_acc > best_acc:
         best_acc = val_acc
