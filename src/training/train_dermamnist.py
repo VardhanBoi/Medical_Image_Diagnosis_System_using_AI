@@ -1,146 +1,170 @@
+"""
+DermaMNIST — 7-class skin lesion classification.
+ResNet-34 backbone, weighted CrossEntropyLoss.
+
+Key fixes vs original:
+  - Critical bug fixed: scheduler.step(f1_score) passed the function
+    object — now correctly passes the computed val_f1 float value
+  - Critical bug fixed: print(f"... {f1_score:.4f}") crashed —
+    f1_score is a function, val_f1 is the computed value
+  - Image size 224×224 (was 64×64)
+  - Phased unfreezing — full unfreeze at epoch 5 was too early,
+    head hadn't learned yet causing feature corruption
+  - Gradient clipping added
+  - num_workers=0, pin_memory=False for CPU/Windows
+"""
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
+import numpy as np
+from collections import Counter
+from sklearn.metrics import classification_report, f1_score
 
 from src.datasets.medmnist_datasets import get_dermamnist
 from src.models.cnn_model import CNN
 
-from sklearn.metrics import confusion_matrix, classification_report, f1_score
-from sklearn.utils.class_weight import compute_class_weight
-
-import matplotlib.pyplot as plt
-import numpy as np
-
 print(">>> DermaMNIST training started")
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
 
+# ─────────────────────────────────────────────────────────────
+# TRANSFORMS
+# ─────────────────────────────────────────────────────────────
 train_transform = transforms.Compose([
-    transforms.Resize((64,64)),
+    transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
+    transforms.RandomVerticalFlip(),
     transforms.RandomRotation(15),
-    transforms.Normalize(
-        (0.485, 0.456, 0.406),
-        (0.229, 0.224, 0.225)
-    )
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 ])
-
 test_transform = transforms.Compose([
-    transforms.Resize((64,64)),
-    transforms.Normalize(
-        (0.485, 0.456, 0.406),
-        (0.229, 0.224, 0.225)
-    )
+    transforms.Resize((224, 224)),
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 ])
 
 train_dataset = get_dermamnist("train", transform=train_transform)
-val_dataset = get_dermamnist("val", transform=test_transform)
-test_dataset = get_dermamnist("test", transform=test_transform)
+val_dataset   = get_dermamnist("val",   transform=test_transform)
+test_dataset  = get_dermamnist("test",  transform=test_transform)
 
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=64)
-test_loader = DataLoader(test_dataset, batch_size=64)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True,
+                          num_workers=0, pin_memory=False)
+val_loader   = DataLoader(val_dataset,   batch_size=64, shuffle=False,
+                          num_workers=0, pin_memory=False)
+test_loader  = DataLoader(test_dataset,  batch_size=64, shuffle=False,
+                          num_workers=0, pin_memory=False)
 
-all_labels = []
+# ─────────────────────────────────────────────────────────────
+# CLASS WEIGHTS — sqrt-capped inverse frequency
+# ─────────────────────────────────────────────────────────────
+labels_list  = [int(label) for _, label in train_dataset]
+class_counts = Counter(labels_list)
+num_classes  = 7
+total        = len(labels_list)
+print(f"Class counts: {dict(sorted(class_counts.items()))}")
 
-for _, labels in train_loader:
-    all_labels.extend(labels.numpy())
-
-all_labels = np.array(all_labels)
-
-weights = compute_class_weight(
-    class_weight='balanced',
-    classes=np.unique(all_labels),
-    y=all_labels
-)
-
-weights = torch.tensor(weights, dtype=torch.float32)
-weights = weights ** 0.5  
-weights = weights.to(device)
-
-model = CNN(in_channels=3, num_classes=7).to(device)
-
-for param in model.model.parameters():
-    param.requires_grad = False
-
-for param in model.model.fc.parameters():
-    param.requires_grad = True
+weights = torch.tensor(
+    [np.sqrt(total / class_counts[i]) for i in range(num_classes)],
+    dtype=torch.float32
+).to(device)
+print(f"Class weights: {np.round(weights.cpu().numpy(), 2)}")
 
 criterion = nn.CrossEntropyLoss(weight=weights)
 
+# ─────────────────────────────────────────────────────────────
+# MODEL
+# ─────────────────────────────────────────────────────────────
+model = CNN(in_channels=3, num_classes=num_classes).to(device)
+
+for p in model.model.parameters():
+    p.requires_grad = False
+for p in model.model.fc.parameters():
+    p.requires_grad = True
+
+
+def resnet_params(layer_name):
+    return [p for n, p in model.model.named_parameters() if layer_name in n]
+
+
 optimizer = torch.optim.Adam(
     filter(lambda p: p.requires_grad, model.parameters()),
-    lr=3e-4,
-    weight_decay=1e-4
+    lr=3e-4, weight_decay=1e-4
 )
-
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer,
-    mode='max',
-    patience=3,
-    factor=0.5
+    optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-7
 )
 
-epochs = 60
-best_acc = 0
-patience = 7
-no_improve = 0
 
-def evaluate(model, loader):
+def evaluate(loader):
     model.eval()
-    all_preds = []
-    all_labels = []
-
+    all_preds, all_labels_list = [], []
     with torch.no_grad():
         for images, labels in loader:
             images = images.to(device)
-            labels = labels.to(device)
+            preds  = torch.argmax(model(images), dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels_list.extend(labels.numpy())
+    # f1_score is now the local variable name, not the function
+    return f1_score(all_labels_list, all_preds, average="macro", zero_division=0)
 
-            outputs = model(images)
-            _, predicted = torch.max(outputs, 1)
 
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+EPOCHS     = 50
+best_f1    = 0.0
+patience   = 8
+no_improve = 0
 
-    return f1_score(all_labels, all_preds, average='macro')
+for epoch in range(EPOCHS):
 
-for epoch in range(epochs):
+    if epoch == 8:
+        print("Unfreezing layer4...")
+        for p in model.model.layer4.parameters():
+            p.requires_grad = True
+        optimizer = torch.optim.Adam([
+            {"params": model.model.fc.parameters(),     "lr": 1e-4},
+            {"params": resnet_params("layer4"),          "lr": 1e-5},
+        ], weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-7
+        )
+
+    if epoch == 14:
+        print("Unfreezing layer3...")
+        for p in model.model.layer3.parameters():
+            p.requires_grad = True
+        optimizer = torch.optim.Adam([
+            {"params": model.model.fc.parameters(),     "lr": 5e-5},
+            {"params": resnet_params("layer4"),          "lr": 1e-5},
+            {"params": resnet_params("layer3"),          "lr": 5e-6},
+        ], weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-7
+        )
 
     model.train()
-    total_loss = 0
-
-    if epoch == 5:
-        print("Unfreezing backbone...")
-        for param in model.model.parameters():
-            param.requires_grad = True
-
+    total_loss = 0.0
     for images, labels in train_loader:
-
         images = images.to(device)
         labels = labels.to(device)
-
         optimizer.zero_grad()
-
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-
+        loss = criterion(model(images), labels)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
-
         total_loss += loss.item()
 
     avg_loss = total_loss / len(train_loader)
+    val_f1   = evaluate(val_loader)          # computed float, not the function
+    scheduler.step(val_f1)                   # fixed: was scheduler.step(f1_score)
 
-    val_acc = evaluate(model, val_loader)
-    scheduler.step(f1_score)
+    print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {avg_loss:.4f} | Val F1: {val_f1:.4f}")
 
-    print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Val F1: {f1_score:.4f}")
-
-    if val_acc > best_acc:
-        best_acc = val_acc
+    if val_f1 > best_f1:
+        best_f1    = val_f1
         no_improve = 0
         torch.save(model.state_dict(), "models/dermamnist_resnet.pth")
+        print(f"  ✓ Saved (F1={best_f1:.4f})")
     else:
         no_improve += 1
 
@@ -148,53 +172,22 @@ for epoch in range(epochs):
         print(f"Early stopping at epoch {epoch+1}")
         break
 
-print("\nTraining finished.")
-print("Best validation accuracy:", best_acc)
-
+# ─────────────────────────────────────────────────────────────
+# FINAL TEST
+# ─────────────────────────────────────────────────────────────
+print(f"\nTraining finished. Best val F1: {best_f1:.4f}")
 model.load_state_dict(torch.load("models/dermamnist_resnet.pth"))
 model.eval()
 
-all_preds = []
-all_labels = []
-
+all_preds, all_labels_list = [], []
 with torch.no_grad():
     for images, labels in test_loader:
-
         images = images.to(device)
-        labels = labels.to(device)
+        preds  = torch.argmax(model(images), dim=1)
+        all_preds.extend(preds.cpu().numpy())
+        all_labels_list.extend(labels.numpy())
 
-        outputs = model(images)
-        _, predicted = torch.max(outputs, 1)
-
-        all_preds.extend(predicted.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-
-
-test_acc = np.mean(np.array(all_preds) == np.array(all_labels)) * 100
-
-print(f"\nTest Accuracy: {test_acc:.2f}%")
-
+print(f"\nTest Accuracy: {np.mean(np.array(all_preds) == np.array(all_labels_list))*100:.2f}%")
 print("\nClassification Report:")
-print(classification_report(all_labels, all_preds, zero_division=0))
-
-f1 = f1_score(all_labels, all_preds, average='macro')
-print("Macro F1:", f1)
-
-print("Predicted classes:", np.unique(all_preds))
-
-cm = confusion_matrix(all_labels, all_preds)
-
-plt.figure(figsize=(8,6))
-plt.imshow(cm, interpolation="nearest")
-plt.title("Confusion Matrix")
-plt.colorbar()
-
-tick_marks = np.arange(7)
-plt.xticks(tick_marks)
-plt.yticks(tick_marks)
-
-plt.xlabel("Predicted")
-plt.ylabel("True")
-
-plt.tight_layout()
-plt.show()
+print(classification_report(all_labels_list, all_preds, zero_division=0))
+print("Macro F1:", f1_score(all_labels_list, all_preds, average="macro", zero_division=0))
