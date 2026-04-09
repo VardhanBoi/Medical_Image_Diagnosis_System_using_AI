@@ -1,21 +1,40 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 
-# Model weights
+# Virtual Env
+.venv/
+venv/
+env/
+
+# Models
+models/*
+!models/.gitkeep
 *.pth
+*.pt
 
-# Numpy datasets
+# Data
+data/*
+!data/sample/
 *.npy
-
-# Processed data folder
+*.npz
 processed/
 
-# Environment files
+# Logs
+*.log
+tmp/
+temp/
+
+# Secrets
 .env
 
-# VS Code settings
+# IDE
 .vscode/
+.idea/
 
-# Jupyter notebooks (optional)
+# Jupyter
 .ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
