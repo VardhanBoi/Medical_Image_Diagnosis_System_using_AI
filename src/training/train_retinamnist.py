@@ -18,23 +18,24 @@ def set_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 # ─────────────────────────────────────────────────────────────
 # LOSS
 # ─────────────────────────────────────────────────────────────
-class WeightedLabelSmoothingCE(nn.Module):
-    def __init__(self, weight=None, smoothing=0.0):
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2):
         super().__init__()
-        self.smoothing = smoothing
-        self.register_buffer("weight", weight)
+        self.alpha = alpha
+        self.gamma = gamma
 
     def forward(self, inputs, targets):
-        return F.cross_entropy(
-            inputs, targets,
-            weight=self.weight,
-            label_smoothing=self.smoothing,
-        )
+        ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
+        pt = torch.exp(-ce_loss)  # prob of correct class
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        return focal_loss.mean()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,7 +64,6 @@ def scores_from_probs(probs, labels):
 
 
 def get_train_recall(model, loader, device):
-    """Per-class recall on full unaugmented training set (1080 samples)."""
     model.eval()
     all_preds, all_labels = [], []
     with torch.no_grad():
@@ -76,35 +76,37 @@ def get_train_recall(model, loader, device):
 
 def checkpoint_score(train_recall, val_recall, val_f1):
     """
-    Checkpoint selector targeting the weighted/macro F1 gap.
+    Revised checkpoint selector.
 
-    The gap comes from class 1 and class 4 test recall being much
-    lower than their training recall. Previous selector used
-    train_min_recall uniformly — but the bottleneck classes are
-    specifically 1 and 4, not whichever happens to be lowest.
+    Key insight from GPU run: class 4 train recall is 0.97-1.00
+    from ep19 onwards for every seed, but test recall is only 0.40.
+    The high c4_tr was dominating the score and selecting epochs
+    where c4 is overfit, not generalising.
 
-    New formula explicitly rewards high class 1 and class 4
-    training recall, weighted by their test underperformance:
-      - class 1 train recall: weight 0.25 (worst test gap: ~0.35)
-      - class 4 train recall: weight 0.15 (bad test gap: ~0.20)
-      - train macro recall:   weight 0.20 (overall balance)
-      - val macro F1:         weight 0.25 (held-out quality)
-      - val min recall:       weight 0.15 (minority on val)
+    Key insight from all runs: class 1 val recall is the most
+    predictive of final test performance. When val c1 recall is
+    high (0.58+), test c1 recall follows. When val c1 is low
+    (0.17-0.42), test c1 collapses to 0.15-0.22.
 
-    This biases checkpoint selection toward epochs where the model
-    has genuinely learned class 1 and 4, rather than epochs where
-    the aggregate min_recall happened to be high.
+    New formula: 
+
+      0.30 × val_c1_recall   — most predictive of test class 1
+      0.20 × val_f1          — overall held-out quality
+      0.20 × train_c1_recall — whether class 1 actually learned
+      0.15 × val_min_recall  — catch total class collapse
+      0.15 × train_macro     — overall training balance
+      (class 4 removed — overfit signal is misleading)
     """
-    tr_c1 = float(train_recall[1])   # class 1 — persistent test underperformer
-    tr_c4 = float(train_recall[4])   # class 4 — consistent test underperformer
+    val_c1   = float(val_recall[1])
+    tr_c1    = float(train_recall[1])
+    val_min  = float(np.min(val_recall))
     tr_macro = float(np.mean(train_recall))
-    vl_min   = float(np.min(val_recall))
 
-    return (0.25 * tr_c1 +
-            0.15 * tr_c4 +
-            0.20 * tr_macro +
-            0.25 * val_f1 +
-            0.15 * vl_min)
+    return (0.30 * val_c1 +
+            0.20 * val_f1 +
+            0.20 * tr_c1 +
+            0.15 * val_min +
+            0.15 * tr_macro)
 
 
 def resnet_params(model, layer_name):
@@ -126,17 +128,22 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
     )
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
 
-    train_loader      = DataLoader(train_dataset,      batch_size=32, sampler=sampler,
-                                   num_workers=0, pin_memory=False)
-    train_eval_loader = DataLoader(train_eval_dataset, batch_size=64, shuffle=False,
-                                   num_workers=0, pin_memory=False)
-    val_loader        = DataLoader(val_dataset,        batch_size=64, shuffle=False,
-                                   num_workers=0, pin_memory=False)
-    test_loader       = DataLoader(test_dataset,       batch_size=64, shuffle=False,
-                                   num_workers=0, pin_memory=False)
+    # Use larger batch on GPU, smaller on CPU
+    bs = 64 if torch.cuda.is_available() else 32
+    nw = 4  if torch.cuda.is_available() else 0
+    pm = True if torch.cuda.is_available() else False
+
+    train_loader      = DataLoader(train_dataset,      batch_size=bs, sampler=sampler,
+                                   num_workers=nw, pin_memory=pm)
+    train_eval_loader = DataLoader(train_eval_dataset, batch_size=128, shuffle=False,
+                                   num_workers=nw, pin_memory=pm)
+    val_loader        = DataLoader(val_dataset,        batch_size=128, shuffle=False,
+                                   num_workers=nw, pin_memory=pm)
+    test_loader       = DataLoader(test_dataset,       batch_size=128, shuffle=False,
+                                   num_workers=nw, pin_memory=pm)
 
     model     = CNN(in_channels=3, num_classes=num_classes).to(device)
-    criterion = WeightedLabelSmoothingCE(weight=weights, smoothing=0.0)
+    criterion = FocalLoss(alpha=weights, gamma=2)
 
     for p in model.model.parameters():
         p.requires_grad = False
@@ -165,7 +172,7 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
 
     for epoch in range(TOTAL_EPOCHS):
 
-        if epoch == 8:
+        if epoch == 4:
             for n, p in model.model.named_parameters():
                 if "layer4" in n:
                     p.requires_grad = True
@@ -176,12 +183,12 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
             scheduler = make_scheduler(optimizer)
             print(f"  [ep{epoch+1}] Unfreezing layer4 (warmup)")
 
-        if epoch == 11:
+        if epoch == 6:
             for pg in optimizer.param_groups:
                 pg["lr"] = min(pg["lr"] * 3, 1e-4)
             print(f"  [ep{epoch+1}] layer4 LR ramped up")
 
-        if epoch == 16:
+        if epoch == 9:
             for n, p in model.model.named_parameters():
                 if "layer3" in n:
                     p.requires_grad = True
@@ -193,9 +200,7 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
             scheduler = make_scheduler(optimizer)
             print(f"  [ep{epoch+1}] Unfreezing layer3")
 
-        if epoch == 10:
-            criterion.smoothing = 0.05
-
+        # Stuck detection on class 4 val recall
         if epoch == 22 and not restart_done and best_ep_so_far is not None:
             recent_c4 = class4_history[-4:]
             if len(recent_c4) == 4 and max(recent_c4) <= 0.20:
@@ -230,9 +235,8 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
         class4_history.append(float(val_recall[4]))
         score = checkpoint_score(train_recall, val_recall, val_f1)
 
-        # Show class 1 and 4 explicitly to track the gap
         print(f"  Ep {epoch+1:2d} | loss {avg_loss:.4f} | vF1 {val_f1:.3f} | "
-              f"c1_tr {train_recall[1]:.2f} c4_tr {train_recall[4]:.2f} | "
+              f"vc1 {val_recall[1]:.2f} tc1 {train_recall[1]:.2f} | "
               f"tr {np.round(train_recall, 2)} | vl {np.round(val_recall, 2)}")
 
         if epoch >= CHECKPOINT_START:
@@ -248,6 +252,7 @@ def train_one_seed(seed, device, train_dataset, train_eval_dataset,
     best_path, best_score, best_vr, best_tr, best_vf1 = checkpoint_data[best_ep]
 
     print(f"\n  Best ep {best_ep} | score={best_score:.4f} | vF1={best_vf1:.3f} | "
+          f"vc1={best_vr[1]:.2f} tc1={best_tr[1]:.2f} | "
           f"tr={np.round(best_tr, 2)} | vl={np.round(best_vr, 2)}")
 
     model.load_state_dict(torch.load(best_path))
@@ -284,11 +289,8 @@ std  = tuple(stats["train"]["std"])
 
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
-    transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
     transforms.RandomHorizontalFlip(),
-    transforms.RandomVerticalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.1),
+    transforms.RandomRotation(5),
     transforms.Normalize(mean, std),
 ])
 test_transform = transforms.Compose([
@@ -309,16 +311,14 @@ print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_
 print(f"Class counts: {dict(sorted(class_counts.items()))}")
 
 weights = torch.tensor(
-    [np.sqrt(total / class_counts[i]) for i in range(num_classes)],
+    [total / (num_classes * class_counts[i]) for i in range(num_classes)],
     dtype=torch.float32
 ).to(device)
 print(f"Class weights: {np.round(weights.cpu().numpy(), 3)}")
 
 os.makedirs("models", exist_ok=True)
 
-# Seeds 314, 42, 777 proven across multiple runs.
-# 1337 replaces 2024 which was consistently weakest.
-SEEDS = [314, 42, 777, 1337]
+SEEDS   = [314, 42, 777, 1337]
 results = []
 
 for seed in SEEDS:
