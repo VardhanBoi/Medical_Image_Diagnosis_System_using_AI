@@ -3,20 +3,7 @@ import torchvision.models as models
 
 
 class CNN(nn.Module):
-    """
-    ResNet-34 backbone.
-
-    Used across all three datasets (RetinaMNIST, ChestMNIST, DermaMNIST).
-    ResNet-34 outperforms ResNet-18 on all three:
-    - RetinaMNIST: ordinal 5-class grading benefits from deeper features
-    - ChestMNIST:  14-label multi-label, larger dataset, deeper is fine
-    - DermaMNIST:  texture discrimination between lesion types needs depth
-
-    ResNet-34 was not replaced by ResNet-18 or EfficientNet-B0/B3 because:
-    - ResNet-18 has shallower features that conflate adjacent DR grades
-    - EfficientNet-B0/B3 underperformed on CPU (dense BN needs large batches)
-    - All empirical GPU/CPU runs showed ResNet-34 best on this dataset
-    """
+    """ResNet-34 backbone for RetinaMNIST, ChestMNIST, DermaMNIST."""
 
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()

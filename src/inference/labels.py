@@ -1,7 +1,4 @@
-"""
-Human-readable label maps for all three datasets.
-Used by all inference scripts to turn class indices into disease names.
-"""
+"""Label maps for all three datasets."""
 
 RETINA_LABELS = {
     0: "No DR",
@@ -11,17 +8,6 @@ RETINA_LABELS = {
     4: "Proliferative DR",
 }
 
-DERMA_LABELS = {
-    0: "Actinic Keratoses",
-    1: "Basal Cell Carcinoma",
-    2: "Benign Keratosis",
-    3: "Dermatofibroma",
-    4: "Melanoma",
-    5: "Melanocytic Nevi",
-    6: "Vascular Lesions",
-}
-
-# ChestMNIST is multi-label — each image can have multiple findings
 CHEST_LABELS = {
     0:  "Atelectasis",
     1:  "Cardiomegaly",
@@ -37,4 +23,14 @@ CHEST_LABELS = {
     11: "Fibrosis",
     12: "Pleural Thickening",
     13: "Hernia",
+}
+
+DERMA_LABELS = {
+    0: "Actinic Keratoses",
+    1: "Basal Cell Carcinoma",
+    2: "Benign Keratosis",
+    3: "Dermatofibroma",
+    4: "Melanoma",
+    5: "Melanocytic Nevi",
+    6: "Vascular Lesions",
 }
