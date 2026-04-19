@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MedVision AI — Medical Image Diagnosis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --bg:        #0a0e17;
+  --surface:   #111827;
+  --surface2:  #1a2236;
+  --border:    rgba(99,130,199,0.18);
+  --accent:    #4f8ef7;
+  --accent2:   #22d3c0;
+  --accent3:   #f97316;
+  --retina:    #818cf8;
+  --chest:     #38bdf8;
+  --derma:     #fb923c;
+  --text:      #e2e8f0;
+  --muted:     #6b7280;
+  --success:   #34d399;
+  --danger:    #f87171;
+  --radius:    14px;
+  --r-sm:      8px;
+  --shadow:    0 20px 60px rgba(0,0,0,0.5);
+}
+
+/* ── Reset ──────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'DM Sans',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ── Background mesh ────────────────────────────────────────── */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(79,142,247,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 80%, rgba(34,211,192,0.06) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 60% at 60% 30%, rgba(249,115,22,0.04) 0%, transparent 50%);
+  pointer-events:none;z-index:0;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.container{
+  position:relative;z-index:1;
+  max-width:1140px;
+  margin:0 auto;
+  padding:0 24px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+header{
+  padding:36px 0 24px;
+  border-bottom:1px solid var(--border);
+}
+.header-inner{
+  display:flex;align-items:center;gap:16px;
+}
+.logo-icon{
+  width:44px;height:44px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;
+  flex-shrink:0;
+}
+.brand{
+  display:flex;flex-direction:column;
+}
+.brand-name{
+  font-family:'DM Serif Display',serif;
+  font-size:1.7rem;
+  letter-spacing:-0.02em;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.brand-sub{
+  font-size:0.78rem;
+  color:var(--muted);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  margin-top:1px;
+}
+.header-badge{
+  margin-left:auto;
+  padding:5px 14px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  font-size:0.73rem;
+  color:var(--muted);
+  font-family:'DM Mono',monospace;
+  display:flex;align-items:center;gap:7px;
+}
+.header-badge::before{
+  content:'';width:7px;height:7px;border-radius:50%;
+  background:var(--success);
+  box-shadow:0 0 8px var(--success);
+  animation:pulse 2s ease infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.hero{
+  padding:60px 0 48px;
+  text-align:center;
+}
+.hero h1{
+  font-family:'DM Serif Display',serif;
+  font-size:clamp(2rem,5vw,3.4rem);
+  line-height:1.15;
+  letter-spacing:-0.03em;
+  margin-bottom:16px;
+}
+.hero h1 em{
+  font-style:italic;
+  background:linear-gradient(90deg,var(--accent),var(--accent2) 50%,var(--accent3));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.hero p{
+  color:var(--muted);
+  font-size:1.05rem;
+  max-width:560px;
+  margin:0 auto;
+  line-height:1.7;
+}
+
+/* ── Modality selector ──────────────────────────────────────── */
+.modality-section{margin-bottom:36px}
+.section-label{
+  font-size:0.72rem;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin-bottom:14px;
+  font-family:'DM Mono',monospace;
+}
+.modality-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
+}
+.mod-card{
+  padding:20px 18px;
+  border:1.5px solid var(--border);
+  border-radius:var(--radius);
+  background:var(--surface);
+  cursor:pointer;
+  transition:border-color .2s,background .2s,transform .15s;
+  position:relative;
+  overflow:hidden;
+}
+.mod-card::before{
+  content:'';
+  position:absolute;inset:0;
+  opacity:0;
+  transition:opacity .25s;
+}
+.mod-card.retina::before{background:radial-gradient(ellipse at 30% 50%,rgba(129,140,248,0.12) 0%,transparent 70%)}
+.mod-card.chest::before {background:radial-gradient(ellipse at 30% 50%,rgba(56,189,248,0.12) 0%,transparent 70%)}
+.mod-card.derma::before {background:radial-gradient(ellipse at 30% 50%,rgba(251,146,60,0.12) 0%,transparent 70%)}
+.mod-card:hover{transform:translateY(-2px)}
+.mod-card:hover::before{opacity:1}
+.mod-card.active{transform:translateY(-2px)}
+.mod-card.active::before{opacity:1}
+.mod-card.retina.active{border-color:var(--retina);box-shadow:0 0 0 1px var(--retina),0 8px 30px rgba(129,140,248,.18)}
+.mod-card.chest.active {border-color:var(--chest); box-shadow:0 0 0 1px var(--chest), 0 8px 30px rgba(56,189,248,.18)}
+.mod-card.derma.active {border-color:var(--derma); box-shadow:0 0 0 1px var(--derma), 0 8px 30px rgba(251,146,60,.18)}
+.mod-icon{
+  font-size:26px;margin-bottom:10px;
+}
+.mod-title{
+  font-weight:600;font-size:0.92rem;margin-bottom:4px;
+}
+.mod-desc{
+  font-size:0.77rem;color:var(--muted);line-height:1.5;
+}
+.mod-badge{
+  margin-top:10px;
+  display:inline-flex;align-items:center;
+  font-size:0.68rem;font-family:'DM Mono',monospace;
+  padding:3px 9px;border-radius:99px;
+}
+.mod-card.retina .mod-badge{background:rgba(129,140,248,.15);color:var(--retina)}
+.mod-card.chest  .mod-badge{background:rgba(56,189,248,.15); color:var(--chest)}
+.mod-card.derma  .mod-badge{background:rgba(251,146,60,.15); color:var(--derma)}
+
+/* ── Upload zone ────────────────────────────────────────────── */
+.upload-section{margin-bottom:32px}
+.drop-zone{
+  border:2px dashed var(--border);
+  border-radius:var(--radius);
+  background:var(--surface);
+  padding:56px 32px;
+  text-align:center;
+  cursor:pointer;
+  transition:border-color .2s,background .2s;
+  position:relative;
+  overflow:hidden;
+}
+.drop-zone:hover,.drop-zone.dragover{
+  border-color:var(--accent);
+  background:rgba(79,142,247,0.04);
+}
+.drop-zone.has-image{
+  padding:24px;
+  border-style:solid;
+  border-color:var(--border);
+}
+.drop-placeholder{pointer-events:none}
+.drop-placeholder .upload-icon{
+  font-size:44px;margin-bottom:16px;opacity:.6;
+}
+.drop-placeholder h3{font-size:1rem;font-weight:500;margin-bottom:8px;}
+.drop-placeholder p{font-size:0.82rem;color:var(--muted);}
+.drop-placeholder .browse-link{
+  color:var(--accent);text-decoration:underline;cursor:pointer;
+}
+.preview-container{display:none;flex-direction:column;align-items:center;gap:16px}
+.preview-container.visible{display:flex}
+.preview-img{
+  max-height:220px;max-width:100%;
+  border-radius:var(--r-sm);
+  object-fit:contain;
+}
+.preview-meta{
+  font-size:0.78rem;color:var(--muted);font-family:'DM Mono',monospace;
+}
+.remove-btn{
+  background:rgba(248,113,113,.15);color:var(--danger);
+  border:1px solid rgba(248,113,113,.3);
+  padding:5px 14px;border-radius:6px;
+  font-size:0.78rem;cursor:pointer;transition:background .2s;
+}
+.remove-btn:hover{background:rgba(248,113,113,.25)}
+#fileInput{display:none}
+
+/* ── Run button ─────────────────────────────────────────────── */
+.run-btn{
+  width:100%;padding:16px;
+  border:none;border-radius:var(--radius);
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#fff;font-size:1rem;font-weight:600;
+  cursor:pointer;letter-spacing:0.01em;
+  transition:opacity .2s,transform .15s,box-shadow .2s;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  box-shadow:0 8px 30px rgba(79,142,247,.35);
+}
+.run-btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+.run-btn:not(:disabled):hover{
+  transform:translateY(-1px);
+  box-shadow:0 12px 40px rgba(79,142,247,.45);
+}
+.spinner{
+  width:18px;height:18px;
+  border:2.5px solid rgba(255,255,255,.3);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:spin .7s linear infinite;
+  display:none;
+}
+.spinner.active{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Results panel ──────────────────────────────────────────── */
+.results-section{
+  display:none;
+  animation:fadeUp .4s ease forwards;
+}
+.results-section.visible{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+.result-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:28px;
+  margin-bottom:16px;
+}
+
+/* single-label result */
+.result-header{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.result-icon{
+  width:52px;height:52px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;flex-shrink:0;
+}
+.result-label{flex:1}
+.result-diagnosis{font-size:1.4rem;font-weight:600;margin-bottom:4px}
+.result-confidence{
+  font-size:0.82rem;color:var(--muted);
+  font-family:'DM Mono',monospace;
+}
+
+/* confidence bar */
+.conf-bar-wrap{
+  height:6px;background:var(--surface2);border-radius:3px;
+  margin-top:8px;overflow:hidden;
+}
+.conf-bar{
+  height:100%;border-radius:3px;
+  transition:width 1s cubic-bezier(.25,1,.5,1);
+}
+
+/* probability breakdown */
+.prob-grid{display:flex;flex-direction:column;gap:10px}
+.prob-row{display:flex;align-items:center;gap:12px}
+.prob-name{
+  width:180px;flex-shrink:0;
+  font-size:0.82rem;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.prob-bar-wrap{
+  flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;
+}
+.prob-bar{
+  height:100%;border-radius:3px;
+  transition:width 1s cubic-bezier(.25,1,.5,1);
+}
+.prob-val{
+  width:48px;flex-shrink:0;
+  font-size:0.78rem;font-family:'DM Mono',monospace;
+  color:var(--muted);text-align:right;
+}
+.prob-row.top .prob-name{color:var(--text);font-weight:500}
+.prob-row.top .prob-val{color:var(--text)}
+
+/* multi-label findings */
+.findings-wrap{margin-bottom:20px}
+.findings-title{font-size:0.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-family:'DM Mono',monospace}
+.findings-list{display:flex;flex-wrap:wrap;gap:8px}
+.finding-chip{
+  padding:5px 12px;border-radius:99px;
+  font-size:0.8rem;font-weight:500;
+}
+.finding-chip.detected{
+  background:rgba(79,142,247,.15);color:var(--accent);
+  border:1px solid rgba(79,142,247,.3);
+}
+.finding-chip.none{
+  background:rgba(52,211,153,.12);color:var(--success);
+  border:1px solid rgba(52,211,153,.3);
+}
+
+/* error */
+.error-card{
+  background:rgba(248,113,113,.08);
+  border:1px solid rgba(248,113,113,.25);
+  border-radius:var(--radius);padding:20px 24px;
+  color:var(--danger);font-size:0.88rem;
+  display:flex;align-items:flex-start;gap:12px;
+}
+.error-icon{font-size:20px;flex-shrink:0}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+footer{
+  margin-top:60px;padding:28px 0;
+  border-top:1px solid var(--border);
+  text-align:center;
+  font-size:0.77rem;color:var(--muted);
+  font-family:'DM Mono',monospace;
+}
+footer span{color:var(--accent)}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media(max-width:640px){
+  .modality-grid{grid-template-columns:1fr}
+  .hero h1{font-size:1.9rem}
+  .prob-name{width:130px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div class="header-inner">
+      <div class="logo-icon">🔬</div>
+      <div class="brand">
+        <span class="brand-name">MedVision AI</span>
+        <span class="brand-sub">Medical Image Diagnosis System</span>
+      </div>
+      <div class="header-badge">API Connected</div>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <section class="hero">
+    <h1>AI-Powered <em>Medical<br/>Image Analysis</em></h1>
+    <p>Upload a medical image and get instant AI diagnosis across three modalities — retinal fundus, chest X-ray, and skin lesion.</p>
+  </section>
+
+  <!-- Modality selector -->
+  <section class="modality-section">
+    <div class="section-label">01 — Select Modality</div>
+    <div class="modality-grid">
+      <div class="mod-card retina active" data-modality="retina" onclick="selectModality('retina')">
+        <div class="mod-icon">👁️</div>
+        <div class="mod-title">RetinaMNIST</div>
+        <div class="mod-desc">Diabetic retinopathy grading from fundus images</div>
+        <span class="mod-badge">5 grades · RGB</span>
+      </div>
+      <div class="mod-card chest" data-modality="chest" onclick="selectModality('chest')">
+        <div class="mod-icon">🫁</div>
+        <div class="mod-title">ChestMNIST</div>
+        <div class="mod-desc">Multi-label chest X-ray pathology detection</div>
+        <span class="mod-badge">14 labels · Grayscale</span>
+      </div>
+      <div class="mod-card derma" data-modality="derma" onclick="selectModality('derma')">
+        <div class="mod-icon">🔬</div>
+        <div class="mod-title">DermaMNIST</div>
+        <div class="mod-desc">Skin lesion classification from dermoscopy</div>
+        <span class="mod-badge">7 classes · RGB</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Upload zone -->
+  <section class="upload-section">
+    <div class="section-label">02 — Upload Image</div>
+    <div class="drop-zone" id="dropZone"
+         ondragover="handleDragOver(event)"
+         ondragleave="handleDragLeave(event)"
+         ondrop="handleDrop(event)"
+         onclick="triggerFileInput()">
+      <div class="drop-placeholder" id="dropPlaceholder">
+        <div class="upload-icon">📤</div>
+        <h3>Drop your image here</h3>
+        <p>or <span class="browse-link">browse files</span> &nbsp;·&nbsp; PNG, JPG, WEBP accepted</p>
+      </div>
+      <div class="preview-container" id="previewContainer">
+        <img id="previewImg" class="preview-img" src="" alt="Preview"/>
+        <div class="preview-meta" id="previewMeta"></div>
+        <button class="remove-btn" onclick="removeImage(event)">✕ Remove</button>
+      </div>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)"/>
+  </section>
+
+  <!-- Run button -->
+  <button class="run-btn" id="runBtn" onclick="runDiagnosis()" disabled>
+    <span class="spinner" id="spinner"></span>
+    <span id="runBtnText">⚡ Run Diagnosis</span>
+  </button>
+
+  <!-- Results -->
+  <section class="results-section" id="resultsSection" style="margin-top:32px">
+    <div class="section-label" style="margin-bottom:16px">03 — Diagnosis Results</div>
+    <div id="resultsContainer"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    MedVision AI &nbsp;·&nbsp; ResNet-34 backbone &nbsp;·&nbsp;
+    Datasets: <span>RetinaMNIST · ChestMNIST · DermaMNIST</span>
+    &nbsp;·&nbsp; For research purposes only
+  </div>
+</footer>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const API_BASE = 'http://localhost:5000';   // ← change if backend runs elsewhere
+
+// ── State ───────────────────────────────────────────────────────────────────
+let selectedModality = 'retina';
+let selectedFile     = null;
+
+// ── Modality selection ───────────────────────────────────────────────────────
+function selectModality(m) {
+  selectedModality = m;
+  document.querySelectorAll('.mod-card').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.mod-card.${m}`).classList.add('active');
+  clearResults();
+}
+
+// ── File handling ────────────────────────────────────────────────────────────
+function triggerFileInput() {
+  if (selectedFile) return;
+  document.getElementById('fileInput').click();
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) setFile(file);
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.add('dragover');
+}
+function handleDragLeave(e) {
+  document.getElementById('dropZone').classList.remove('dragover');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) setFile(file);
+}
+
+function setFile(file) {
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('previewImg');
+    img.src = ev.target.result;
+    img.onload = () => {
+      document.getElementById('previewMeta').textContent =
+        `${file.name} · ${(file.size/1024).toFixed(1)} KB · ${img.naturalWidth}×${img.naturalHeight}px`;
+    };
+  };
+  reader.readAsDataURL(file);
+
+  document.getElementById('dropPlaceholder').style.display = 'none';
+  document.getElementById('previewContainer').classList.add('visible');
+  document.getElementById('dropZone').classList.add('has-image');
+  document.getElementById('dropZone').onclick = null;
+
+  document.getElementById('runBtn').disabled = false;
+  clearResults();
+}
+
+function removeImage(e) {
+  e.stopPropagation();
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('previewImg').src = '';
+  document.getElementById('previewContainer').classList.remove('visible');
+  document.getElementById('dropPlaceholder').style.display = '';
+  document.getElementById('dropZone').classList.remove('has-image');
+  document.getElementById('dropZone').onclick = () => triggerFileInput();
+  document.getElementById('runBtn').disabled = true;
+  clearResults();
+}
+
+// ── API call ─────────────────────────────────────────────────────────────────
+async function runDiagnosis() {
+  if (!selectedFile) return;
+
+  setLoading(true);
+  clearResults();
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+  form.append('modality', selectedModality);
+
+  try {
+    const res  = await fetch(`${API_BASE}/api/predict`, { method:'POST', body:form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
+    renderResults(data, selectedModality);
+  } catch(err) {
+    renderError(err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+function setLoading(on) {
+  document.getElementById('spinner').classList.toggle('active', on);
+  document.getElementById('runBtnText').textContent = on ? 'Analysing…' : '⚡ Run Diagnosis';
+  document.getElementById('runBtn').disabled = on;
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+function clearResults() {
+  const sec = document.getElementById('resultsSection');
+  sec.classList.remove('visible');
+  document.getElementById('resultsContainer').innerHTML = '';
+}
+
+function renderResults(data, modality) {
+  const sec = document.getElementById('resultsSection');
+  const con = document.getElementById('resultsContainer');
+  con.innerHTML = '';
+
+  if (modality === 'chest') {
+    con.appendChild(renderChestResult(data));
+  } else {
+    con.appendChild(renderSingleResult(data, modality));
+  }
+
+  sec.classList.add('visible');
+  // animate bars after a frame
+  requestAnimationFrame(() => requestAnimationFrame(animateBars));
+}
+
+function renderSingleResult(data, modality) {
+  const color   = modality === 'retina' ? 'var(--retina)' : 'var(--derma)';
+  const pct     = (data.confidence * 100).toFixed(1);
+  const icon    = modality === 'retina' ? '👁️' : '🔬';
+  const probs   = data.probabilities;
+  const topKey  = data.class_name;
+
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML = `
+    <div class="result-header">
+      <div class="result-icon" style="background:${color}22">${icon}</div>
+      <div class="result-label">
+        <div class="result-diagnosis">${data.class_name}</div>
+        <div class="result-confidence">Confidence · ${pct}%</div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar" data-w="${pct}" style="width:0%;background:${color}"></div>
+        </div>
+      </div>
+    </div>
+    <div class="section-label" style="margin-bottom:12px">Probability Breakdown</div>
+    <div class="prob-grid">
+      ${Object.entries(probs)
+          .sort((a,b)=>b[1]-a[1])
+          .map(([name,prob])=>{
+            const w   = (prob*100).toFixed(1);
+            const top = name===topKey ? 'top' : '';
+            return `<div class="prob-row ${top}">
+              <div class="prob-name">${name}</div>
+              <div class="prob-bar-wrap">
+                <div class="prob-bar" data-w="${w}" style="width:0%;background:${color}${top?'':'88'}"></div>
+              </div>
+              <div class="prob-val">${w}%</div>
+            </div>`;
+          }).join('')}
+    </div>`;
+  return card;
+}
+
+function renderChestResult(data) {
+  const findings = data.findings;
+  const probs    = data.probabilities;
+  const noFind   = findings.length===1 && findings[0]==='No Finding';
+
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML = `
+    <div class="findings-wrap">
+      <div class="findings-title">Detected Findings</div>
+      <div class="findings-list">
+        ${noFind
+          ? `<span class="finding-chip none">✓ No Finding</span>`
+          : findings.map(f=>`<span class="finding-chip detected">${f}</span>`).join('')}
+      </div>
+    </div>
+    <div class="section-label" style="margin-bottom:12px">All Pathology Probabilities</div>
+    <div class="prob-grid">
+      ${Object.entries(probs)
+          .sort((a,b)=>b[1]-a[1])
+          .map(([name,prob])=>{
+            const w   = (prob*100).toFixed(1);
+            const top = findings.includes(name) ? 'top':'';
+            const barColor = top ? 'var(--chest)' : 'var(--chest)55';
+            return `<div class="prob-row ${top}">
+              <div class="prob-name">${name}</div>
+              <div class="prob-bar-wrap">
+                <div class="prob-bar" data-w="${w}" style="width:0%;background:${barColor}"></div>
+              </div>
+              <div class="prob-val">${w}%</div>
+            </div>`;
+          }).join('')}
+    </div>`;
+  return card;
+}
+
+function renderError(msg) {
+  const sec = document.getElementById('resultsSection');
+  const con = document.getElementById('resultsContainer');
+  con.innerHTML = `
+    <div class="error-card">
+      <span class="error-icon">⚠️</span>
+      <div><strong>Prediction failed</strong><br/>${msg}</div>
+    </div>`;
+  sec.classList.add('visible');
+}
+
+function animateBars() {
+  document.querySelectorAll('[data-w]').forEach(el => {
+    el.style.width = el.dataset.w + '%';
+  });
+}
+</script>
+</body>
+</html>

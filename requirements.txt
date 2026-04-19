@@ -5,3 +5,5 @@ numpy
 scikit-learn
 Pillow
 matplotlib
+flask
+flask-cors

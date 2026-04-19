@@ -8,7 +8,9 @@ class CNN(nn.Module):
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
         self.in_channels = in_channels
-        self.model       = models.resnet34(weights="IMAGENET1K_V1")
+        # weights=None: skip downloading ImageNet weights.
+        # The full trained state (backbone + head) is loaded from the .pth file.
+        self.model = models.resnet34(weights=None)
 
         if in_channels == 1:
             self.model.conv1 = nn.Conv2d(
