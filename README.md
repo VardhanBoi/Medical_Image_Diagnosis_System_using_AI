@@ -139,12 +139,6 @@ Contributions are welcome. You can improve models, add datasets, or enhance UI.
 
 ---
 
-## 📄 License
-
-Add your preferred license (MIT recommended).
-
----
-
 ## 👤 Author
 
 **Vardhan Boi**  
